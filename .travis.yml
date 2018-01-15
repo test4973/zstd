@@ -5,12 +5,15 @@ sudo: required
 dist: trusty
 matrix:
   include:
-    # Ubuntu 14.04
-    - env: Cmd='make check'
+    # Container
+    - sudo: false
+      env: Cmd='make check'
+
     - env: Cmd='make arminstall && make armfuzz'
 
     # tag-specific test
     - if: tag =~ ^v[0-9]\.[0-9]
+      sudo: false
       env: Cmd='make -C tests checkTag && tests/checkTag $TRAVIS_BRANCH'
 
 git:
