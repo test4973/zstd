@@ -22,7 +22,7 @@ matrix:
     - env: Cmd='make ppcinstall && make ppcfuzz'
     - env: Cmd='make ppcinstall && make ppc64fuzz'
 
-    - sudo: false
+    - sudo: true   # otherwise : LeakSanitizer has encountered a fatal error
       env: Cmd='make -j uasanregressiontest'
     - sudo: false
       env: Cmd='make -j msanregressiontest'
