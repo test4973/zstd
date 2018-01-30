@@ -85,7 +85,7 @@ ZSTDLIB_API size_t ZSTDMT_initCStream_usingCDict(ZSTDMT_CCtx* mtctx,
  * List of parameters that can be set using ZSTDMT_setMTCtxParameter() */
 typedef enum {
     ZSTDMT_p_jobSize,           /* Each job is compressed in parallel. By default, this value is dynamically determined depending on compression parameters. Can be set explicitly here. */
-    ZSTDMT_p_overlapSectionLog  /* Each job may reload a part of previous job to enhance compressionr ratio; 0 == no overlap, 6(default) == use 1/8th of window, >=9 == use full window */
+    ZSTDMT_p_overlapSectionLog  /* Each job may reload a part of previous job to enhance compressionr ratio; 0 == no overlap, 6(default) == use 1/8th of window, >=9 == use full window. This is a "sticky" parameter : its value will be re-used on next compression job */
 } ZSTDMT_parameter;
 
 /* ZSTDMT_setMTCtxParameter() :
@@ -97,11 +97,12 @@ ZSTDLIB_API size_t ZSTDMT_setMTCtxParameter(ZSTDMT_CCtx* mtctx, ZSTDMT_parameter
 
 
 /*! ZSTDMT_compressStream_generic() :
- *  Combines ZSTDMT_compressStream() with ZSTDMT_flushStream() or ZSTDMT_endStream()
+ *  Combines ZSTDMT_compressStream() with optional ZSTDMT_flushStream() or ZSTDMT_endStream()
  *  depending on flush directive.
  * @return : minimum amount of data still to be flushed
  *           0 if fully flushed
- *           or an error code */
+ *           or an error code
+ *  note : needs to be init using any ZSTD_initCStream*() variant */
 ZSTDLIB_API size_t ZSTDMT_compressStream_generic(ZSTDMT_CCtx* mtctx,
                                                 ZSTD_outBuffer* output,
                                                 ZSTD_inBuffer* input,
@@ -120,7 +121,14 @@ size_t ZSTDMT_CCtxParam_setNbThreads(ZSTD_CCtx_params* params, unsigned nbThread
 /* ZSTDMT_getNbThreads():
  * @return nb threads currently active in mtctx.
  * mtctx must be valid */
-size_t ZSTDMT_getNbThreads(const ZSTDMT_CCtx* mtctx);
+unsigned ZSTDMT_getNbThreads(const ZSTDMT_CCtx* mtctx);
+
+/* ZSTDMT_getFrameProgression():
+ * tells how much data has been consumed (input) and produced (output) for current frame.
+ * able to count progression inside worker threads.
+ */
+ZSTD_frameProgression ZSTDMT_getFrameProgression(ZSTDMT_CCtx* mtctx);
+
 
 /*! ZSTDMT_initCStream_internal() :
  *  Private use only. Init streaming operation.

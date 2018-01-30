@@ -711,9 +711,25 @@ ZSTDLIB_API size_t ZSTD_initCStream_usingCDict_advanced(ZSTD_CStream* zcs, const
  *  If pledgedSrcSize is not known at reset time, use macro ZSTD_CONTENTSIZE_UNKNOWN.
  *  If pledgedSrcSize > 0, its value must be correct, as it will be written in header, and controlled at the end.
  *  For the time being, pledgedSrcSize==0 is interpreted as "srcSize unknown" for compatibility with older programs,
- *  but it may change to mean "empty" in some future version, so prefer using macro ZSTD_CONTENTSIZE_UNKNOWN.
+ *  but it will change to mean "empty" in future version, so use macro ZSTD_CONTENTSIZE_UNKNOWN instead.
  * @return : 0, or an error code (which can be tested using ZSTD_isError()) */
 ZSTDLIB_API size_t ZSTD_resetCStream(ZSTD_CStream* zcs, unsigned long long pledgedSrcSize);
+
+
+typedef struct {
+    unsigned long long ingested;
+    unsigned long long consumed;
+    unsigned long long produced;
+} ZSTD_frameProgression;
+
+/* ZSTD_getFrameProgression():
+ * tells how much data has been ingested (read from input)
+ * consumed (input actually compressed) and produced (output) for current frame.
+ * Therefore, (ingested - consumed) is amount of input data buffered internally, not yet compressed.
+ * Can report progression inside worker threads (multi-threading and non-blocking mode).
+ */
+ZSTD_frameProgression ZSTD_getFrameProgression(const ZSTD_CCtx* cctx);
+
 
 
 /*=====   Advanced Streaming decompression functions  =====*/
@@ -972,10 +988,20 @@ typedef enum {
     ZSTD_p_dictIDFlag,       /* When applicable, dictionary's ID is written into frame header (default:1) */
 
     /* multi-threading parameters */
+    /* These parameters are only useful if multi-threading is enabled (ZSTD_MULTITHREAD).
+     * They return an error otherwise. */
     ZSTD_p_nbThreads=400,    /* Select how many threads a compression job can spawn (default:1)
                               * More threads improve speed, but also increase memory usage.
                               * Can only receive a value > 1 if ZSTD_MULTITHREAD is enabled.
                               * Special: value 0 means "do not change nbThreads" */
+    ZSTD_p_nonBlockingMode,  /* Single thread mode is by default "blocking" :
+                              * it finishes its job as much as possible, and only then gives back control to caller.
+                              * In contrast, multi-thread is by default "non-blocking" :
+                              * it takes some input, flush some output if available, and immediately gives back control to caller.
+                              * Compression work is performed in parallel, within worker threads.
+                              * (note : a strong exception to this rule is when first job is called with ZSTD_e_end : it becomes blocking)
+                              * Setting this parameter to 1 will enforce non-blocking mode even when only 1 thread is selected.
+                              * It allows the caller to do other tasks while the worker thread compresses in parallel. */
     ZSTD_p_jobSize,          /* Size of a compression job. This value is only enforced in streaming (non-blocking) mode.
                               * Each compression job is completed in parallel, so indirectly controls the nb of active threads.
                               * 0 means default, which is dynamically determined based on compression parameters.
@@ -1094,7 +1120,7 @@ ZSTDLIB_API size_t ZSTD_CCtx_refPrefix_advanced(ZSTD_CCtx* cctx, const void* pre
 
 
 typedef enum {
-    ZSTD_e_continue=0, /* collect more data, encoder transparently decides when to output result, for optimal conditions */
+    ZSTD_e_continue=0, /* collect more data, encoder decides when to output compressed result, for optimal conditions */
     ZSTD_e_flush,      /* flush any data provided so far - frame will continue, future data can still reference previous data for better compression */
     ZSTD_e_end         /* flush any remaining data and close current frame. Any additional data starts a new frame. */
 } ZSTD_EndDirective;
@@ -1110,10 +1136,11 @@ typedef enum {
  *                                                     and then immediately returns, just indicating that there is some data remaining to be flushed.
  *                                                     The function nonetheless guarantees forward progress : it will return only after it reads or write at least 1+ byte.
  *  - Exception : in multi-threading mode, if the first call requests a ZSTD_e_end directive, it is blocking : it will complete compression before giving back control to caller.
- *  - @return provides the minimum amount of data remaining to be flushed from internal buffers
+ *  - @return provides a minimum amount of data remaining to be flushed from internal buffers
  *            or an error code, which can be tested using ZSTD_isError().
  *            if @return != 0, flush is not fully completed, there is still some data left within internal buffers.
- *            This is useful to determine if a ZSTD_e_flush or ZSTD_e_end directive is completed.
+ *            This is useful for ZSTD_e_flush, since in this case more flushes are necessary to empty all buffers.
+ *            For ZSTD_e_end, @return == 0 when internal buffers are fully flushed and frame is completed.
  *  - after a ZSTD_e_end directive, if internal buffer is not fully flushed (@return != 0),
  *            only ZSTD_e_end or ZSTD_e_flush operations are allowed.
  *            Before starting a new compression job, or changing compression parameters,
